@@ -68,7 +68,7 @@ Returns: void
 ***/
 void run_proxy(int clientfd, FILE* log_file) {
 
-  rio_t client_rio; // The decriptor for the buffer associated with "clientfd". See csapp.c
+  rio_t client_rio, server_rio; // The decriptor for the buffer associated with "clientfd". See csapp.c
   char buffer[BUFFER_SIZE] = {'\0'}; // A string for a single line read in from a file.
   char method[BUFFER_SIZE] = {'\0'}; // Method read in from "buffer"
   char uri[BUFFER_SIZE] = {'\0'}; // URI read in from "buffer"
@@ -78,9 +78,20 @@ void run_proxy(int clientfd, FILE* log_file) {
   char port[BUFFER_SIZE] = {'\0'}; // The port read in from "uri"
   char path[BUFFER_SIZE] = {'\0'}; // The path read in from "uri"
 
+  char message[1024] = {'\0'}; // The message which will be sent to the server.
+
+  // Socket variables
+  struct hostent* server;
+  struct sockaddr_in server_addr;
+  int socketfd;
+  int response_len = 0;
+
   Rio_readinitb(&client_rio, clientfd); // Associate clientfd with a read buffer.
   Rio_readlineb(&client_rio, buffer, BUFFER_SIZE); // Read in a line from clientfd.
   sscanf(buffer, "%s %s %s", method, uri, version); // Read request data.
+
+  // Parse the URI data.
+  read_uri(uri, host, port, path);
 
   /** Note: (TODO - Delete this comment block before submitting)
 
@@ -88,15 +99,33 @@ void run_proxy(int clientfd, FILE* log_file) {
     method = GET
     uri = http://www.ics.uci.edu/~harris/test.html
     version = HTTP/1.1
+    host = www.ics.uci.edu
+    port = 80
+      -> 80 is the default port
+    path = /~harris/test.html
 
   ***/
 
-  printf("%s %s %s\n", method, uri, version);
+  // Prepare and send the request. //
+  server = gethostbyname(host);
+  memset(&server_addr, '\0', sizeof(server_addr));
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(atoi(port));
+  memcpy(&(server_addr.sin_addr.s_addr), server->h_addr, server->h_length);
 
-  // Parse the URI data.
-  read_uri(uri, host, port, path);
+  socketfd = Socket(AF_INET, SOCK_STREAM, 0);
+  Connect(socketfd, (struct sockaddr*) &server_addr, sizeof(server_addr));
 
-  printf("\"%s\" \"%s\" \"%s\"\n", host, port, path);
+  sprintf(message, "%s %s %s\r\nHost: %s\r\n\r\n", method, path, "HTTP/1.0", host);
+
+  Rio_readinitb(&server_rio, socketfd);
+  Rio_writen(socketfd, message, strlen(message));
+  while(Rio_readlineb(&server_rio, buffer, BUFFER_SIZE) != 0) {
+    response_len += sizeof(buffer);
+    Rio_writen(clientfd, buffer, response_len);
+  }
+
+  Close(socketfd);
 
 }
 
@@ -159,7 +188,6 @@ bool validate_port(int argc, char** argv) {
 }
 
 void read_uri(char* uri, char* host, char* port, char* path) {
-
 
   int slashPos = 0;
   int colonPos = 0;
