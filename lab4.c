@@ -13,6 +13,7 @@
 // Prototypes
 bool validate_port(int argc, char** argv);
 void run_proxy(int fd, FILE* log_file);
+void read_uri(char* uri, char* host, char* port, char* path);
 
 /*** function main ***
 
@@ -73,6 +74,10 @@ void run_proxy(int clientfd, FILE* log_file) {
   char uri[BUFFER_SIZE] = {'\0'}; // URI read in from "buffer"
   char version[BUFFER_SIZE] = {'\0'}; // Version read in from "buffer"
 
+  char host[BUFFER_SIZE] = {'\0'}; // The hostname read in from "uri"
+  char port[BUFFER_SIZE] = {'\0'}; // The port read in from "uri"
+  char path[BUFFER_SIZE] = {'\0'}; // The path read in from "uri"
+
   Rio_readinitb(&client_rio, clientfd); // Associate clientfd with a read buffer.
   Rio_readlineb(&client_rio, buffer, BUFFER_SIZE); // Read in a line from clientfd.
   sscanf(buffer, "%s %s %s", method, uri, version); // Read request data.
@@ -87,6 +92,11 @@ void run_proxy(int clientfd, FILE* log_file) {
   ***/
 
   printf("%s %s %s\n", method, uri, version);
+
+  // Parse the URI data.
+  read_uri(uri, host, port, path);
+
+  printf("\"%s\" \"%s\" \"%s\"\n", host, port, path);
 
 }
 
@@ -145,5 +155,41 @@ bool validate_port(int argc, char** argv) {
 
   fclose(servicesFile);
   return true;
+
+}
+
+void read_uri(char* uri, char* host, char* port, char* path) {
+
+
+  int slashPos = 0;
+  int colonPos = 0;
+  char* slashPtr = NULL;
+  char* colonPtr = NULL;
+
+  sscanf(uri, "http://%[^/]", host);
+
+  slashPtr = strchr(uri + 7, '/');
+  colonPtr = strchr(uri + 7, ':');
+
+  slashPos = slashPtr != NULL ? slashPtr - uri : 0;
+  colonPos = colonPtr != NULL ? colonPtr - uri : 0;
+
+  if(colonPos != 0) {
+
+    memset(host + colonPos - 7, '\0', BUFFER_SIZE - colonPos);
+
+    sscanf(uri + colonPos, ":%[^/]", port);
+
+    sscanf(uri + colonPos + 1 + strlen(port), "%s", path);
+
+  } else {
+
+    memset(host + slashPos - 7, '\0', BUFFER_SIZE - slashPos);
+
+    sprintf(port, "80"); // Default to port 80
+
+    sscanf(uri + slashPos, "%s", path);
+
+  }
 
 }
