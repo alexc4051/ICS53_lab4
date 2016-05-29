@@ -14,6 +14,7 @@
 bool validate_port(int argc, char** argv);
 void run_proxy(int fd, FILE* log_file);
 void read_uri(char* uri, char* host, char* port, char* path);
+int parse_uri(char *uri, char *hostname, char *pathname, int *port)
 
 /*** function main ***
 
@@ -228,3 +229,42 @@ void read_uri(char* uri, char* host, char* port, char* path) {
   }
 
 }
+
+
+
+/*
+ * format_log_entry - Create a formatted log entry in logstring.
+ *
+ * The inputs are the socket address of the requesting client
+ * (sockaddr), the URI from the request (uri), and the size in bytes
+ * of the response from the server (size).
+ */
+//Need to look into the formatting of the entry more (not sure yet, atm) 
+// void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
+		      // char *uri, int size)
+// {
+    // time_t now;
+    // char time_str[MAXLINE];
+    // unsigned long host;
+    // unsigned char a, b, c, d;
+
+    // /* Get a formatted time string */
+    // now = time(NULL);
+    // strftime(time_str, MAXLINE, "%a %d %b %Y %H:%M:%S %Z", localtime(&now));
+
+    // /*
+     // * Convert the IP address in network byte order to dotted decimal
+     // * form. Note that we could have used inet_ntoa, but chose not to
+     // * because inet_ntoa is a Class 3 thread unsafe function that
+     // * returns a pointer to a static variable (Ch 13, CS:APP).
+     // */
+    // host = ntohl(sockaddr->sin_addr.s_addr);
+    // a = host >> 24;
+    // b = (host >> 16) & 0xff;
+    // c = (host >> 8) & 0xff;
+    // d = host & 0xff;
+
+
+    // /* Return the formatted log entry string */
+    // sprintf(logstring, "%s: %d.%d.%d.%d %s", time_str, a, b, c, d, uri);
+// }
