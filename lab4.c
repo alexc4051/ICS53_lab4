@@ -68,7 +68,7 @@ Returns: void
 ***/
 void run_proxy(int clientfd, FILE* log_file) {
 
-  rio_t client_rio, server_rio; // The decriptor for the buffer associated with "clientfd". See csapp.c
+  rio_t client_rio; // The decriptor for the buffer associated with "clientfd". See csapp.c
   char buffer[BUFFER_SIZE] = {'\0'}; // A string for a single line read in from a file.
   char method[BUFFER_SIZE] = {'\0'}; // Method read in from "buffer"
   char uri[BUFFER_SIZE] = {'\0'}; // URI read in from "buffer"
@@ -78,13 +78,13 @@ void run_proxy(int clientfd, FILE* log_file) {
   char port[BUFFER_SIZE] = {'\0'}; // The port read in from "uri"
   char path[BUFFER_SIZE] = {'\0'}; // The path read in from "uri"
 
-  char message[1024] = {'\0'}; // The message which will be sent to the server.
+  char request[4096] = {'\0'}; // The request which will be sent to the server.
 
   // Socket variables
-  struct hostent* server;
-  struct sockaddr_in server_addr;
+  struct addrinfo hints, *res;
   int socketfd;
   int response_len = 0;
+  int total_response_len = 0;
 
   Rio_readinitb(&client_rio, clientfd); // Associate clientfd with a read buffer.
   Rio_readlineb(&client_rio, buffer, BUFFER_SIZE); // Read in a line from clientfd.
@@ -93,36 +93,43 @@ void run_proxy(int clientfd, FILE* log_file) {
   // Parse the URI data.
   read_uri(uri, host, port, path);
 
-  /** Note: (TODO - Delete this comment block before submitting)
+  // Prepare the request data
+  memset(&hints, '\0', sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_STREAM;
+  getaddrinfo(host, port, &hints, &res);
 
-    When connecting to: http://www.ics.uci.edu/~harris/test.html
-    method = GET
-    uri = http://www.ics.uci.edu/~harris/test.html
-    version = HTTP/1.1
-    host = www.ics.uci.edu
-    port = 80
-      -> 80 is the default port
-    path = /~harris/test.html
+  if(!res) {
+    puts("Unable to serve content");
+    return;
+  }
 
-  ***/
+  // Send the request
+  socketfd = Socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  if(socketfd != -1) {
+    Connect(socketfd, res->ai_addr, res->ai_addrlen);
+  } else {
+    puts("Error creating socket.");
+    freeaddrinfo(res);
+    return;
+  }
 
-  // Prepare and send the request. //
-  server = gethostbyname(host);
-  memset(&server_addr, '\0', sizeof(server_addr));
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(atoi(port));
-  memcpy(&(server_addr.sin_addr.s_addr), server->h_addr, server->h_length);
+  freeaddrinfo(res);
 
-  socketfd = Socket(AF_INET, SOCK_STREAM, 0);
-  Connect(socketfd, (struct sockaddr*) &server_addr, sizeof(server_addr));
+  // Read in the entire request buffer into memory.
+  strcpy(request, buffer);
+  do {
+    Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
+    sprintf(request + strlen(request), "%s", buffer);
+  } while(strcmp(buffer, "\r\n") != 0);
 
-  sprintf(message, "%s %s %s\r\nHost: %s\r\n\r\n", method, path, "HTTP/1.0", host);
+  // Send the request to the server.
+  Rio_writen(socketfd, request, strlen(request));
 
-  Rio_readinitb(&server_rio, socketfd);
-  Rio_writen(socketfd, message, strlen(message));
-  while(Rio_readlineb(&server_rio, buffer, BUFFER_SIZE) != 0) {
-    response_len += sizeof(buffer);
-    Rio_writen(clientfd, buffer, response_len);
+  // Send the response to the client.
+  while((response_len = recv(socketfd, buffer, BUFFER_SIZE, 0)) > 0) {
+    total_response_len += response_len;
+    Rio_writen(clientfd, buffer, strlen(buffer));
   }
 
   Close(socketfd);
