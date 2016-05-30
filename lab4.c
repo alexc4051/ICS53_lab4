@@ -14,7 +14,7 @@
 bool validate_port(int argc, char** argv);
 void run_proxy(int fd, FILE* log_file);
 void read_uri(char* uri, char* host, char* port, char* path);
-int parse_uri(char *uri, char *hostname, char *pathname, int *port)
+int parse_uri(char *uri, char *hostname, char *pathname, int *port);
 
 /*** function main ***
 
