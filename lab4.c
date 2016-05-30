@@ -132,12 +132,22 @@ void* run_proxy(void* args) {
     return NULL;
   }
 
+  /*
   // Read in the entire request buffer into memory.
   Rio_writen(socketfd, buffer, strlen(buffer));
   do {
     bytes_read = Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
     Rio_writen(socketfd, buffer, bytes_read);
   } while(strcmp(buffer, "\r\n") != 0);
+  */
+  Rio_writen(socketfd, buffer, strlen(buffer));
+  while(true) {
+    bytes_read = Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
+    Rio_writen(socketfd, buffer, bytes_read);
+    if(strcmp(buffer, "\r\n") == 0 || strcmp(buffer, "\n") == 0 || bytes_read == 0) {
+      break;
+    }
+  }
 
   // Send the response to the client.
   while((response_len = recv(socketfd, buffer, BUFFER_SIZE, 0)) > 0) {
