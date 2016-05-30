@@ -10,7 +10,7 @@
 
 #include "csapp.h"
 
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 2048
 
 // Prototypes
 bool validate_port(int argc, char** argv);
@@ -132,14 +132,7 @@ void* run_proxy(void* args) {
     return NULL;
   }
 
-  /*
-  // Read in the entire request buffer into memory.
-  Rio_writen(socketfd, buffer, strlen(buffer));
-  do {
-    bytes_read = Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
-    Rio_writen(socketfd, buffer, bytes_read);
-  } while(strcmp(buffer, "\r\n") != 0);
-  */
+  // Send the request to the server.
   Rio_writen(socketfd, buffer, strlen(buffer));
   while(true) {
     bytes_read = Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
@@ -213,30 +206,43 @@ bool validate_port(int argc, char** argv) {
 
 void read_uri(char* uri, char* host, char* port, char* path) {
 
+  int offset;
+  int port_num;
   int slashPos = 0;
   int colonPos = 0;
   char* slashPtr = NULL;
   char* colonPtr = NULL;
 
-  sscanf(uri, "http://%[^/]", host);
+  if(strstr(uri, "https://") != NULL) {
+    sscanf(uri, "https://%[^/]", host);
+    offset = 8;
+  } else if(strstr(uri, "http://") != NULL) {
+    sscanf(uri, "http://%[^/]", host);
+    offset = 7;
+  } else {
+    sscanf(uri, "%[^/]", host);
+    offset = 0;
+  }
 
-  slashPtr = strchr(uri + 7, '/');
-  colonPtr = strchr(uri + 7, ':');
+
+  slashPtr = strchr(uri + offset, '/');
+  colonPtr = strchr(uri + offset, ':');
 
   slashPos = slashPtr != NULL ? slashPtr - uri : 0;
   colonPos = colonPtr != NULL ? colonPtr - uri : 0;
 
   if(colonPos != 0) {
 
-    memset(host + colonPos - 7, '\0', BUFFER_SIZE - colonPos);
+    memset(host + colonPos - offset, '\0', BUFFER_SIZE - colonPos);
 
-    sscanf(uri + colonPos, ":%[^/]", port);
+    sscanf(uri + colonPos, ":%d", &port_num);
+    sprintf(port, "%d", port_num);
 
     sscanf(uri + colonPos + 1 + strlen(port), "%s", path);
 
   } else {
 
-    memset(host + slashPos - 7, '\0', BUFFER_SIZE - slashPos);
+    memset(host + slashPos - offset, '\0', BUFFER_SIZE - slashPos);
 
     sprintf(port, "80"); // Default to port 80
 
