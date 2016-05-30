@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+#include <arpa/inet.h>
 
 #include "csapp.h"
 
@@ -14,7 +16,7 @@
 bool validate_port(int argc, char** argv);
 void run_proxy(int fd, FILE* log_file);
 void read_uri(char* uri, char* host, char* port, char* path);
-int parse_uri(char *uri, char *hostname, char *pathname, int *port);
+void write_log(FILE* log_file, char* ip, char* uri, int bytes);
 
 /*** function main ***
 
@@ -79,17 +81,20 @@ void run_proxy(int clientfd, FILE* log_file) {
   char port[BUFFER_SIZE] = {'\0'}; // The port read in from "uri"
   char path[BUFFER_SIZE] = {'\0'}; // The path read in from "uri"
 
-  char request[4096] = {'\0'}; // The request which will be sent to the server.
-
   // Socket variables
   struct addrinfo hints, *res;
   int socketfd;
   int response_len = 0;
   int total_response_len = 0;
+  int bytes_read;
 
   Rio_readinitb(&client_rio, clientfd); // Associate clientfd with a read buffer.
   Rio_readlineb(&client_rio, buffer, BUFFER_SIZE); // Read in a line from clientfd.
   sscanf(buffer, "%s %s %s", method, uri, version); // Read request data.
+
+  if(strcmp(method, "GET") != 0) {
+    return;
+  }
 
   // Parse the URI data.
   read_uri(uri, host, port, path);
@@ -101,12 +106,11 @@ void run_proxy(int clientfd, FILE* log_file) {
   getaddrinfo(host, port, &hints, &res);
 
   if(!res) {
-    puts("Unable to serve content");
     return;
   }
 
   // Send the request
-  socketfd = Socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  socketfd = Socket(AF_INET, SOCK_STREAM, 0);
   if(socketfd != -1) {
     Connect(socketfd, res->ai_addr, res->ai_addrlen);
   } else {
@@ -115,41 +119,26 @@ void run_proxy(int clientfd, FILE* log_file) {
     return;
   }
 
-  freeaddrinfo(res);
-
   // Read in the entire request buffer into memory.
-  strcpy(request, buffer);
+  Rio_writen(socketfd, buffer, strlen(buffer));
   do {
-    Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
-    sprintf(request + strlen(request), "%s", buffer);
+    bytes_read = Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
+    Rio_writen(socketfd, buffer, bytes_read);
   } while(strcmp(buffer, "\r\n") != 0);
-
-  // Send the request to the server.
-  Rio_writen(socketfd, request, strlen(request));
 
   // Send the response to the client.
   while((response_len = recv(socketfd, buffer, BUFFER_SIZE, 0)) > 0) {
     total_response_len += response_len;
-    Rio_writen(clientfd, buffer, strlen(buffer));
+    Rio_writen(clientfd, buffer, response_len);
   }
 
+  write_log(log_file, inet_ntoa(((struct sockaddr_in*) res->ai_addr)->sin_addr), uri, total_response_len);
+
+  freeaddrinfo(res);
   Close(socketfd);
 
 }
 
-/*** function validate_port ***
-
-Read in command line arguments and validate the port number.
-
-Input:
-# int argc: "argc" provided to main.
-# char* argv: "argv" provided to main.
-
-Returns:
-# Success: true
-# Failure: false
-
-***/
 bool validate_port(int argc, char** argv) {
 
   FILE* servicesFile = NULL; // Pointer to /etc/services.
@@ -230,7 +219,26 @@ void read_uri(char* uri, char* host, char* port, char* path) {
 
 }
 
+void write_log(FILE* log_file, char* ip, char* uri, int bytes) {
 
+  char timebuf[BUFFER_SIZE] = {'\0'};
+  char logbuf[BUFFER_SIZE] = {'\0'};
+  time_t raw;
+  struct tm* parsed_time;
+
+  time(&raw);
+  parsed_time = localtime(&raw);
+  strftime(timebuf, BUFFER_SIZE, "%a %d %b %Y %H:%M:%S %Z", parsed_time);
+  sprintf(logbuf, "%s: %s %s %d\n",
+    timebuf,
+    ip,
+    uri,
+    bytes
+  );
+  fputs(logbuf, log_file);
+  puts(logbuf);
+
+}
 
 /*
  * format_log_entry - Create a formatted log entry in logstring.
@@ -239,7 +247,7 @@ void read_uri(char* uri, char* host, char* port, char* path) {
  * (sockaddr), the URI from the request (uri), and the size in bytes
  * of the response from the server (size).
  */
-//Need to look into the formatting of the entry more (not sure yet, atm) 
+//Need to look into the formatting of the entry more (not sure yet, atm)
 // void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
 		      // char *uri, int size)
 // {
