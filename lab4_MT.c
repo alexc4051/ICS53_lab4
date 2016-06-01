@@ -10,13 +10,15 @@
 
 #include "csapp.h"
 
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 2048
 
 // Prototypes
 bool validate_port(int argc, char** argv);
-void run_proxy(int fd, FILE* log_file);
+void* run_proxy(void*);
 void read_uri(char* uri, char* host, char* port, char* path);
-void write_log(FILE* log_file, char* ip, char* uri, int bytes);
+bool write_log(char* ip, char* uri, int bytes);
+
+FILE* log_file = NULL;
 
 /*** function main ***
 
@@ -28,10 +30,11 @@ int main(int argc, char** argv) {
 
   bool validPort = validate_port(argc, argv); // Bool for validating the port.
   char* port = argv[1]; // The port provided to the command line.
-  int listenfd, clientfd; // Socket file descriptors.
+  int listenfd, connfd; // Socket file descriptors.
   socklen_t client_len; // Length of client response.
   struct sockaddr_in client_addr; // Address of client.
-  FILE* log_file = NULL; // The log file.
+  int* args = NULL; // Arguments to each thread
+  pthread_t tid; // ID of each thread.
 
   // Make sure the port is valid.
   if(validPort == false) {
@@ -49,8 +52,12 @@ int main(int argc, char** argv) {
   listenfd = Open_listenfd(port);
   while(true) {
     client_len = sizeof(client_addr);
-    clientfd = Accept(listenfd, (SA*) &client_addr, &client_len);
-    run_proxy(clientfd, log_file);
+    connfd = Accept(listenfd, (SA*) &client_addr, &client_len);
+
+    args = calloc(1, sizeof(int));
+    *args = connfd;
+    pthread_create(&tid, NULL, run_proxy, args);
+
   }
 
   fclose(log_file);
@@ -68,7 +75,7 @@ Input:
 Returns: void
 
 ***/
-void run_proxy(int clientfd, FILE* log_file) {
+void* run_proxy(void* args) {
 
   rio_t client_rio; // The decriptor for the buffer associated with "clientfd". See csapp.c
   char buffer[BUFFER_SIZE] = {'\0'}; // A string for a single line read in from a file.
@@ -82,17 +89,22 @@ void run_proxy(int clientfd, FILE* log_file) {
 
   // Socket variables
   struct addrinfo hints, *res;
-  int socketfd;
+  int socketfd, clientfd;
   int response_len = 0;
   int total_response_len = 0;
   int bytes_read;
+
+  clientfd = *((int*) args);
+  Free(args);
+  Pthread_detach(pthread_self());
 
   Rio_readinitb(&client_rio, clientfd); // Associate clientfd with a read buffer.
   Rio_readlineb(&client_rio, buffer, BUFFER_SIZE); // Read in a line from clientfd.
   sscanf(buffer, "%s %s %s", method, uri, version); // Read request data.
 
   if(strcmp(method, "GET") != 0) {
-    return;
+    Close(clientfd);
+    return NULL;
   }
 
   // Parse the URI data.
@@ -105,7 +117,8 @@ void run_proxy(int clientfd, FILE* log_file) {
   getaddrinfo(host, port, &hints, &res);
 
   if(!res) {
-    return;
+    Close(clientfd);
+    return NULL;
   }
 
   // Send the request
@@ -114,10 +127,12 @@ void run_proxy(int clientfd, FILE* log_file) {
     Connect(socketfd, res->ai_addr, res->ai_addrlen);
   } else {
     puts("Error creating socket.");
+    Close(clientfd);
     freeaddrinfo(res);
-    return;
+    return NULL;
   }
 
+  // Send the request to the server.
   Rio_writen(socketfd, buffer, strlen(buffer));
   while(true) {
     bytes_read = Rio_readlineb(&client_rio, buffer, BUFFER_SIZE);
@@ -133,11 +148,14 @@ void run_proxy(int clientfd, FILE* log_file) {
     Rio_writen(clientfd, buffer, response_len);
   }
 
-  write_log(log_file, inet_ntoa(((struct sockaddr_in*) res->ai_addr)->sin_addr), uri, total_response_len);
+  while(write_log(inet_ntoa(((struct sockaddr_in*) res->ai_addr)->sin_addr), uri, total_response_len) == false) {
+    usleep(5000);
+  }
 
   freeaddrinfo(res);
   Close(socketfd);
   Close(clientfd);
+  return NULL;
 
 }
 
@@ -234,12 +252,19 @@ void read_uri(char* uri, char* host, char* port, char* path) {
 
 }
 
-void write_log(FILE* log_file, char* ip, char* uri, int bytes) {
+bool write_log(char* ip, char* uri, int bytes) {
 
   char timebuf[BUFFER_SIZE] = {'\0'};
   char logbuf[BUFFER_SIZE] = {'\0'};
   time_t raw;
   struct tm* parsed_time;
+  static bool currently_writing;
+
+  if(currently_writing == true) {
+    return false;
+  }
+
+  currently_writing = true;
 
   time(&raw);
   parsed_time = localtime(&raw);
@@ -250,8 +275,12 @@ void write_log(FILE* log_file, char* ip, char* uri, int bytes) {
     uri,
     bytes
   );
+  if(log_file) {
+    fprintf(log_file, "%s", logbuf);
+    fflush(log_file);
+  }
 
-  fprintf(log_file, "%s", logbuf);
-  fflush(log_file);
+  currently_writing = false;
+  return true;
 
 }
